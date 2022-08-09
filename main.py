@@ -2,6 +2,7 @@ from enum import Enum
 from uuid import uuid4
 import base64
 import os
+import threading
 
 import uvicorn
 from fastapi import FastAPI
@@ -51,19 +52,21 @@ class Model(str, Enum):
 
 diffusion_client = None
 diffusion_client_pid = None
+diffusion_client_lock = threading.Lock()
 
 
 @app.get("/generate")
-async def generate(prompt: str, n: int,  model: Model):
+def generate(prompt: str, n: int,  model: Model):
     global diffusion_client, diffusion_client_pid
-    if diffusion_client is None or diffusion_client_pid != os.getpid():
-        diffusion_client = DiffusionClient(
-            initial_peers=[
-                "/ip4/193.106.95.184/tcp/31234/p2p/Qmas1tApYHyNWXAMoJ9pxkAWBXcy4z11yquoAM3eiF1E86",
-                "/ip4/193.106.95.184/tcp/31235/p2p/QmYN4gEa3uGVcxqjMznr5vEG7DUBGUWZgT98Rnrs6GU4Hn",
-            ]
-        )
-        diffusion_client_pid = os.getpid()
+    with diffusion_client_lock:
+        if diffusion_client is None or diffusion_client_pid != os.getpid():
+            diffusion_client = DiffusionClient(
+                initial_peers=[
+                    "/ip4/193.106.95.184/tcp/31234/p2p/Qmas1tApYHyNWXAMoJ9pxkAWBXcy4z11yquoAM3eiF1E86",
+                    "/ip4/193.106.95.184/tcp/31235/p2p/QmYN4gEa3uGVcxqjMznr5vEG7DUBGUWZgT98Rnrs6GU4Hn",
+                ]
+            )
+            diffusion_client_pid = os.getpid()
         
     job_id = str(uuid4())
     images = list(map(base64.b64encode, run_inference(diffusion_client, prompt, n)))
