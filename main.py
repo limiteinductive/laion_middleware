@@ -55,16 +55,18 @@ diffusion_client_pid = None
 
 @app.get("/generate")
 async def generate(prompt: str, n: int,  model: Model):
-    if not diffusion_client:
-        client = DiffusionClient(
+    global diffusion_client, diffusion_client_pid
+    if diffusion_client is None or diffusion_client_pid != os.getpid():
+        diffusion_client = DiffusionClient(
             initial_peers=[
                 "/ip4/193.106.95.184/tcp/31234/p2p/Qmas1tApYHyNWXAMoJ9pxkAWBXcy4z11yquoAM3eiF1E86",
                 "/ip4/193.106.95.184/tcp/31235/p2p/QmYN4gEa3uGVcxqjMznr5vEG7DUBGUWZgT98Rnrs6GU4Hn",
             ]
         )
+        diffusion_client_pid = os.getpid()
         
     job_id = str(uuid4())
-    images = list(map(base64.b64encode, run_inference(client, prompt, n)))
+    images = list(map(base64.b64encode, run_inference(diffusion_client, prompt, n)))
 
     return {"job_id": job_id, "images": images}
 
