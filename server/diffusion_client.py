@@ -4,6 +4,7 @@ import threading
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from dataclasses import dataclass
 import cv2
 import hivemind
 import numpy as np
@@ -206,35 +207,48 @@ class NoModulesFound(RuntimeError):
     pass
 
 
+@dataclass
+class GeneratedImage:
+    encoded_image: bytes
+    decoded_image: Optional[np.ndarray]
+    nsfw_score: float
+        
+        
 class DiffusionClient:
     def __init__(
-        self, *, initial_peers: List[str], dht_prefix: str = "diffusion", **kwargs
+        self,
+        *,
+        initial_peers: List[str],
+        dht_prefix: str = "diffusion",
+        **kwargs
     ):
         dht = hivemind.DHT(initial_peers, client_mode=True, start=True, **kwargs)
         self.expert = BalancedRemoteExpert(dht=dht, uid_prefix=dht_prefix + ".")
-
-    def draw(
-        self, prompts: List[str], *, return_encoded: bool = False
-    ) -> Union[np.ndarray, List[bytes]]:
+    
+    def draw(self, prompts: List[str], *, skip_decoding: bool = False) -> List[GeneratedImage]:
         encoded_prompts = []
         for prompt in prompts:
-            tensor = torch.tensor(list(prompt.encode()), dtype=torch.int64)
+            tensor = torch.tensor(list(prompt.encode()), dtype=torch.uint8)
             tensor = F.pad(tensor, (0, MAX_PROMPT_LENGTH - len(tensor)))
             encoded_prompts.append(tensor)
         encoded_prompts = torch.stack(encoded_prompts)
-
-        (encoded_images,) = self.expert(encoded_prompts)
-
-        if return_encoded:
-            return [buf.tobytes() for buf in encoded_images.numpy()]
-
-        output_images = []
-        for buf in encoded_images.numpy():
-            image = cv2.imdecode(buf, 1)  # imdecode() returns a BGR image
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            output_images.append(image)
-        return np.stack(output_images)
-
+        
+        encoded_images, nsfw_scores = self.expert(encoded_prompts)
+    
+        result = []
+        for buf, nsfw_score in zip(encoded_images.numpy(), nsfw_scores.detach().numpy()):
+            decoded_image = None
+            if not skip_decoding:
+                decoded_image = cv2.imdecode(buf, 1)  # imdecode() returns a BGR image
+                decoded_image = cv2.cvtColor(decoded_image, cv2.COLOR_BGR2RGB)
+    
+            result.append(GeneratedImage(
+                encoded_image=buf.tobytes(),
+                decoded_image=decoded_image,
+                nsfw_score=nsfw_score,
+            ))
+        return result
+        
     @property
     def n_active_servers(self) -> int:
         return self.expert.expert_balancer.n_active_experts
