@@ -2,9 +2,13 @@ import base64
 import gc
 import io
 import os
+<<<<<<< HEAD
 from enum import Enum
 from pathlib import Path
 from uuid import uuid4
+=======
+import threading
+>>>>>>> e46591d8d65e4b584a25cc55329da53525c8b6ed
 
 import PIL.Image as Image
 import uvicorn
@@ -54,6 +58,7 @@ class Model(str, Enum):
 
 diffusion_client = None
 diffusion_client_pid = None
+diffusion_client_lock = threading.Lock()
 
 
 def save_images(images: list, job_id: str, path: str):
@@ -63,6 +68,7 @@ def save_images(images: list, job_id: str, path: str):
 
 
 @app.get("/generate")
+<<<<<<< HEAD
 async def generate(prompt: str, n: int, model: Model):
     global diffusion_client, diffusion_client_pid
     if diffusion_client is None or diffusion_client_pid != os.getpid():
@@ -74,6 +80,20 @@ async def generate(prompt: str, n: int, model: Model):
         )
         diffusion_client_pid = os.getpid()
 
+=======
+def generate(prompt: str, n: int,  model: Model):
+    global diffusion_client, diffusion_client_pid
+    with diffusion_client_lock:
+        if diffusion_client is None or diffusion_client_pid != os.getpid():
+            diffusion_client = DiffusionClient(
+                initial_peers=[
+                    "/ip4/193.106.95.184/tcp/31234/p2p/Qmas1tApYHyNWXAMoJ9pxkAWBXcy4z11yquoAM3eiF1E86",
+                    "/ip4/193.106.95.184/tcp/31235/p2p/QmYN4gEa3uGVcxqjMznr5vEG7DUBGUWZgT98Rnrs6GU4Hn",
+                ]
+            )
+            diffusion_client_pid = os.getpid()
+        
+>>>>>>> e46591d8d65e4b584a25cc55329da53525c8b6ed
     job_id = str(uuid4())
     images = run_inference(diffusion_client, prompt, n)
     print(images)
