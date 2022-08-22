@@ -2,22 +2,22 @@ import base64
 import gc
 import io
 import os
-<<<<<<< HEAD
 from enum import Enum
 from pathlib import Path
 from uuid import uuid4
-=======
 import threading
->>>>>>> e46591d8d65e4b584a25cc55329da53525c8b6ed
+import time
+
 
 import PIL.Image as Image
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
 
 from server import run_inference
-from server.diffusion_client import DiffusionClient
+from server.diffusion_client import DiffusionClient, NoModulesFound
 
 app = FastAPI()
 
@@ -64,44 +64,69 @@ diffusion_client_lock = threading.Lock()
 def save_images(images: list, job_id: str, path: str):
     for i, image in enumerate(images):
         image = Image.open(io.BytesIO(image))
-        image.save((Path(path) / "_".join([job_id, str(i).zfill(2)])).with_suffix('.webp'))
+        image.save(
+            (Path(path) / "_".join([job_id, str(i).zfill(2)])).with_suffix(".webp")
+        )
 
 
 @app.get("/generate")
-<<<<<<< HEAD
-async def generate(prompt: str, n: int, model: Model):
+async def generate(prompt: str, n: int, seed: int=None, model: Model = "diffusion"):
     global diffusion_client, diffusion_client_pid
     if diffusion_client is None or diffusion_client_pid != os.getpid():
         diffusion_client = DiffusionClient(
             initial_peers=[
-                '/ip4/193.106.95.184/tcp/31334/p2p/QmRbeBn2noC63PWHAM2w4mQCrjLFks2vc4Dgy1YooEpUYJ',
-                '/ip4/193.106.95.184/tcp/31335/p2p/Qmf3DM44osRjP2xFmomh8oH8HnwLDV9ePDMSvGo5JtjEuL',
+               "/ip4/34.79.100.149/tcp/38731/p2p/QmYiEc3moPrWcZoQZmXKXJjpH23REEMjNkL2xgzhpaQufa",
+               #"/dns/2.tcp.ngrok.io/tcp/10359/p2p/QmYiEc3moPrWcZoQZmXKXJjpH23REEMjNkL2xgzhpaQufa"
             ]
         )
         diffusion_client_pid = os.getpid()
 
-=======
-def generate(prompt: str, n: int,  model: Model):
-    global diffusion_client, diffusion_client_pid
-    with diffusion_client_lock:
-        if diffusion_client is None or diffusion_client_pid != os.getpid():
-            diffusion_client = DiffusionClient(
-                initial_peers=[
-                    "/ip4/193.106.95.184/tcp/31234/p2p/Qmas1tApYHyNWXAMoJ9pxkAWBXcy4z11yquoAM3eiF1E86",
-                    "/ip4/193.106.95.184/tcp/31235/p2p/QmYN4gEa3uGVcxqjMznr5vEG7DUBGUWZgT98Rnrs6GU4Hn",
-                ]
-            )
-            diffusion_client_pid = os.getpid()
-        
->>>>>>> e46591d8d65e4b584a25cc55329da53525c8b6ed
     job_id = str(uuid4())
-    images = run_inference(diffusion_client, prompt, n)
+    try: 
+        images = run_inference(diffusion_client, prompt, n, seed=seed)
+    except NoModulesFound:
+        return "no modules found."
     print(images)
     save_images(images, job_id, path="/root/images")
 
     encoded_images = list(map(base64.b64encode, images))
 
     return {"job_id": job_id, "images": encoded_images}
+
+
+@app.get("/html", response_class=HTMLResponse)
+async def html(prompt: str, n: int, seed: int=None):
+    start = time.time()
+
+    while time.time() - start < 60:
+        output = await generate(prompt, n, seed=seed, model="diffusion")
+
+        if isinstance(output, dict):
+            images = output["images"]
+        else:
+            time.sleep(1)
+            continue
+
+        body = "<body>"
+        for image in images:
+            body += f'<img src="data:image/png;base64, {str(image)[2:-1]}" /> '
+        body += "</body>"
+
+        return f"""
+        <html>
+            <head>
+                <title>Images sucessefuly generated!</title>
+            </head
+            {body}
+        </html>
+        """
+    return """
+    <html>
+        <body>
+            No idle experts found...
+        </body>
+    </html>
+    """
 
 
 if __name__ == "__main__":

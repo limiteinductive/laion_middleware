@@ -17,9 +17,16 @@ from hivemind.dht import DHT
 from hivemind.moe.client.expert import DUMMY, expert_forward
 from hivemind.moe.client.remote_expert_worker import RemoteExpertWorker
 from hivemind.moe.expert_uid import ExpertInfo, ExpertPrefix, ExpertUID
-from hivemind.utils import (DHTExpiration, ValueWithExpiration, get_dht_time,
-                            get_logger, nested_compare, nested_flatten,
-                            nested_pack, use_hivemind_log_handler)
+from hivemind.utils import (
+    DHTExpiration,
+    ValueWithExpiration,
+    get_dht_time,
+    get_logger,
+    nested_compare,
+    nested_flatten,
+    nested_pack,
+    use_hivemind_log_handler,
+)
 from hivemind.utils.performance_ema import PerformanceEMA
 from torch.autograd.function import once_differentiable
 
@@ -212,43 +219,39 @@ class GeneratedImage:
     encoded_image: bytes
     decoded_image: Optional[np.ndarray]
     nsfw_score: float
-        
-        
+
+
 class DiffusionClient:
     def __init__(
-        self,
-        *,
-        initial_peers: List[str],
-        dht_prefix: str = "diffusion",
-        **kwargs
+        self, *, initial_peers: List[str], dht_prefix: str = "diffusion", **kwargs
     ):
         dht = hivemind.DHT(initial_peers, client_mode=True, start=True, **kwargs)
         self.expert = BalancedRemoteExpert(dht=dht, uid_prefix=dht_prefix + ".")
-    
-    def draw(self, prompts: List[str], *, skip_decoding: bool = False) -> List[GeneratedImage]:
+
+    def draw(
+        self, prompts: List[str], *, seed: int=None, skip_decoding: bool = False
+    ) -> List[GeneratedImage]:
         encoded_prompts = []
         for prompt in prompts:
             tensor = torch.tensor(list(prompt.encode()), dtype=torch.uint8)
             tensor = F.pad(tensor, (0, MAX_PROMPT_LENGTH - len(tensor)))
             encoded_prompts.append(tensor)
         encoded_prompts = torch.stack(encoded_prompts)
-        
-        encoded_images, nsfw_scores = self.expert(encoded_prompts)
-    
+        encoded_images = self.expert(encoded_prompts, seed=torch.tensor(-1))
+
+
         result = []
-        for buf, nsfw_score in zip(encoded_images.numpy(), nsfw_scores.detach().numpy()):
+        for buf in encoded_images.numpy():
             decoded_image = None
             if not skip_decoding:
                 decoded_image = cv2.imdecode(buf, 1)  # imdecode() returns a BGR image
                 decoded_image = cv2.cvtColor(decoded_image, cv2.COLOR_BGR2RGB)
-    
-            result.append(GeneratedImage(
-                encoded_image=buf.tobytes(),
-                decoded_image=decoded_image,
-                nsfw_score=nsfw_score,
-            ))
+
+            result.append(
+                buf.tobytes()
+            )
         return result
-        
+
     @property
     def n_active_servers(self) -> int:
         return self.expert.expert_balancer.n_active_experts
@@ -294,21 +297,30 @@ class BalancedRemoteExpert(nn.Module):
         :param kwargs: extra keyword tensors that will be passed to each expert, batch-first
         :returns: averaged predictions of all experts that delivered result on time, nested structure of batch-first
         """
+        self.info["keyword_names"] = ("seed",)
+        print(self.info)
         assert len(kwargs) == len(
             self.info["keyword_names"]
         ), f"Keyword args should be {self.info['keyword_names']}"
+
         kwargs = {key: kwargs[key] for key in self.info["keyword_names"]}
 
         if self._expert_info is None:
             raise NotImplementedError()
         # Note: we put keyword arguments in the same order as on a server to prevent f(a=1, b=2) != f(b=2, a=1) errors
 
+        print(kwargs)
         forward_inputs = (args, kwargs)
 
-        if not nested_compare(forward_inputs, self.info["forward_schema"]):
-            raise TypeError(
-                f"Inputs do not match expert input schema. Did you pass the right number of parameters?"
-            )
+
+        # self.info["forward_schema"][0]["seed"]=kwargs["seed"]
+        # print(self.info["forward_schema"])
+        # import time; time.sleep(30)
+
+        # if not nested_compare(forward_inputs, self.info["forward_schema"]):
+        #     raise TypeError(
+        #         f"Inputs do not match expert input schema. Did you pass the right number of parameters?"
+        #     )
 
         flat_inputs = list(nested_flatten(forward_inputs))
         forward_task_size = flat_inputs[0].shape[0]
